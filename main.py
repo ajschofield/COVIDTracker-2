@@ -1,4 +1,3 @@
-# Import modules
 import os
 from pathlib import Path
 import pandas as pd
@@ -9,147 +8,111 @@ from yaspin import yaspin
 import time
 
 # VARIABLES AND INITIALISATION
+global error_count
 error_count = 0
-url_cases = 'https://coronavirus.data.gov.uk/downloads/csv/coronavirus-cases_latest.csv'
-# url_deaths = 'https://coronavirus.data.gov.uk/downloads/csv/coronavirus-deaths_latest.csv'
+url = "https://api.coronavirus.data.gov.uk/v2/data"
 
-def getStats():
-    global error_count
-    cwd = os.path.dirname(os.path.realpath(__file__))
-    path = Path("stats/")
-    path_to_stats = cwd / path
+def getStats(metric):
+  # Define the query parameters
+  params = {
+    "areaType": "nation",
+    "areaName": "England",
+    "metric": metric,
+    "format": "json"
+    }
 
-    with yaspin(text=" Checking if 'stats' folder is present...", color="yellow") as spinner:
-        time.sleep(1)  # time consuming code
+  response = requests.get(url,params=params)
+  if response.status_code == 200:
+    data = response.json()
 
-        if not os.path.exists(path_to_stats):
-            spinner.fail("✘")
-            os.makedirs(path_to_stats)
-        else:
-            spinner.ok("✔")
+    date_metric = {}
 
-    with yaspin(text=" Downloading COVID-19 cases...", color="yellow") as spinner:
-        time.sleep(2)
-        try:
-            response = requests.get(url_cases)
-            with open(os.path.join(path_to_stats, "covid-cases.csv"), 'wb') as f:
-                f.write(response.content)
-        except Exception:
-            spinner.fail("✘")
-            error_count += 1
-        else:
-            spinner.ok("✔")
-    """
-    with yaspin(text=" Downloading COVID-19 deaths...", color="yellow") as spinner:
-        time.sleep(2)
-        try:
-            response = requests.get(url_deaths)
-            with open(os.path.join(path_to_stats, "covid-deaths.csv"), 'wb') as f:
-                f.write(response.content)
-        except Exception:
-            spinner.fail("✘")
-            error_count += 1
-        else:
-            spinner.ok("✔")
-    """
+    for item in data["body"]:
+      date = item["date"]
+      metric_data = item[metric]
+      date_metric[date] = metric_data
+    
+    return date_metric
+  
+  else:
+    print(f"Error: Unable to fetch data. Status code: {response.status_code}")
+    return None
 
-def csv_parser():
-    # Get abs path
-    cwd = os.path.dirname(os.path.realpath(__file__))
-    path = Path("stats/")
-    path_to_stats = cwd / path
+path = Path("stats/")
 
-    # Get path to files
-    covid_case_file_path = path_to_stats / "covid-cases.csv"
-    # covid_death_file_path = path_to_stats / "covid-deaths.csv"
+with yaspin(text=" Checking if 'stats' folder is present...", color="yellow") as spinner:
+  time.sleep(1)
+  if not os.path.exists(path):
+      spinner.fail("✘")
+      os.makedirs(path)
+  else:
+      spinner.ok("✔")
 
-    # Read CSV files
-    cases = pd.read_csv(covid_case_file_path).dropna()
-    # deaths = pd.read_csv(covid_death_file_path).dropna()
+with yaspin(text=" Downloading COVID-19 daily cases...", color="yellow") as spinner:
+  time.sleep(2)
+  try:
+    cases = getStats("newCasesBySpecimenDate")
+  except Exception:
+    spinner.fail("✘")
+    error_count += 1
+  else:
+    spinner.ok("✔")
 
-    # Get England data
-    cases_filtered_england = cases.loc[cases['Area name'] == "England"]
-    # deaths_filtered_england = deaths.loc[deaths['Area name'] == "England"]
+with yaspin(text=" Downloading COVID-19 daily deaths...", color="yellow") as spinner:
+  try:
+    deaths = getStats("newDailyNsoDeathsByDeathDate")
+  except Exception:
+    spinner.fail("✘")
+    error_count += 1
+  else:
+    spinner.ok("✔")
 
-    # Sort by date
-    cases_sorted = cases_filtered_england.sort_values(by='Specimen date')
-    # deaths_sorted = deaths_filtered_england.sort_values(by='Reporting date')
-
-    # Convert date strings to datetime objects
-    cases_sorted['Specimen date'] = pd.to_datetime(cases_sorted['Specimen date'])
-    # deaths_sorted['Reporting date'] = pd.to_datetime(deaths_sorted['Reporting date'])
-
-    # Return data from function
-    return cases_sorted # ,deaths_sorted
-
-# First, get latest stats using getStats()
-getStats()
-
-# Then, parse the data: we only need the dates and their corresponding values.
-imported = csv_parser()
-cases = imported #[0]
-# deaths = imported[1]
-
-# Temporary variables
-date_today = datetime.now().strftime('%d-%m-%Y')
-cwd = os.path.dirname(os.path.realpath(__file__))
 path_2 = Path("graphs/")
-path_to_graphs = cwd / path_2
 
 with yaspin(text=" Checking if 'graphs' folder is present...", color="yellow") as spinner:
-    time.sleep(1)
-    if not os.path.exists(path_to_graphs):
-        spinner.fail("✘")
-        os.makedirs(path_to_graphs)
-    else:
-        spinner.ok("✔")
+  time.sleep(1)
+  if not os.path.exists(path_2):
+      spinner.fail("✘")
+      os.makedirs(path_2)
+  else:
+      spinner.ok("✔")
 
+# Create DataFrames for deaths and cases
+data_deaths = pd.DataFrame(deaths.items(), columns=["date", "newDailyNsoDeathsByDeathDate"])
+data_deaths["date"] = pd.to_datetime(data_deaths["date"])
+data_cases = pd.DataFrame(cases.items(), columns=["date", "newCasesBySpecimenDate"])
+data_cases["date"] = pd.to_datetime(data_cases["date"])
 
-with yaspin(text=" Creating and saving the daily cases plot...", color="yellow") as spinner:
-    try:
-        p1 = ggplot(cases, aes(x="Specimen date", y="Daily lab-confirmed cases", group = 1)) + geom_col() + labs(title = "Daily COVID-19 Cases") + scale_x_date(date_breaks = "3 days") + stat_smooth(method='mavg', method_args={'window': 3}, color='cyan', show_legend=True) + stat_smooth(method='mavg', method_args={'window': 7}, color='blue') + theme(axis_text_x=element_text(rotation=45, hjust=1))
-        p1.save(filename=('cases_daily_' + str(date_today)),path=path_to_graphs,height=6, width=20, units = 'in', dpi=1000, verbose = False)
-    except Exception:
-        spinner.fail("✘")
-        error_count += 1
-    else:
-        spinner.ok("✔")
+date_today = datetime.now().strftime('%d-%m-%Y')
 
-"""
-with yaspin(text=" Creating and saving the daily change in deaths plot... ", color="yellow") as spinner:
-    try:
-        p2 = ggplot(deaths, aes(x="Reporting date", y="Daily change in deaths", group = 1)) + geom_col() + labs(title = "Daily Change in Deaths") + scale_x_date(date_breaks = "3 days") + stat_smooth(method='mavg', method_args={'window': 3}, color='cyan') + stat_smooth(method='mavg', method_args={'window': 7}, color='blue') + theme(axis_text_x=element_text(rotation=45, hjust=1))
-        p2.save(filename = ('deaths_change_daily_' + str(date_today)),path=path_to_graphs,height=6, width=20, units = 'in', dpi=1000, verbose = False)
-    except Exception:
-        spinner.fail("✘")
-        error_count += 1
-    else:
-        spinner.ok("✔")
-"""
+# Create the ggplot graph for cases
+graph_cases = (
+    ggplot(data_cases, aes(x="date", y="newCasesBySpecimenDate"))
+    + geom_line()
+    + labs(title=f"England COVID-19 Cases by Date", x="Date", y="Cases")
+    + theme_minimal()
+    + theme(axis_text_x=element_text(rotation=45, hjust=1))
+    + scale_x_date(date_breaks = "21 days")
+    + stat_smooth(method='mavg', method_args={'window': 3}, color='cyan', show_legend=True)
+    + stat_smooth(method='mavg', method_args={'window': 7}, color='blue')
+    + theme(axis_text_x=element_text(rotation=45, hjust=1))
+)
 
-with yaspin(text=" Creating and saving the cumulative cases plot...", color="yellow") as spinner:
-    try:
-        p3 = ggplot(cases, aes(x="Specimen date", y="Cumulative lab-confirmed cases", group = 1)) + geom_point() + geom_line() + labs(title = "Cumulative Cases") + scale_x_date(date_breaks = "3 days") + theme(axis_text_x=element_text(rotation=45, hjust=1))
-        p3.save(filename = ('cumulative_cases_' + str(date_today)),path=path_to_graphs,height=6, width=20, units = 'in', dpi=1000, verbose = False)
-    except Exception:
-        spinner.fail("✘")
-        error_count += 1
-    else:
-        spinner.ok("✔")
+# Save the graph to a file
+graph_cases.save(filename=('cases_daily_' + str(date_today)),path=path_2,height=6, width=25, units = 'in', dpi=1000, verbose = False)
 
-"""
-with yaspin(text=" Creating and saving the cumulative deaths plot...", color="yellow") as spinner:
-    try:
-        p4 = ggplot(deaths, aes(x="Reporting date", y="Cumulative deaths", group = 1)) + geom_point() + geom_line() + labs(title = "Cumulative Deaths") + scale_x_date(date_breaks = "3 days") + theme(axis_text_x=element_text(rotation=45, hjust=1))
-        p4.save(filename = ('cumulative_deaths_' + str(date_today)),path=path_to_graphs,height=6, width=20, units = 'in', dpi=1000, verbose = False)
-    except Exception:
-        spinner.fail("✘")
-        error_count += 1
-    else:
-        spinner.ok("✔")
-"""
+# Create the ggplot graph for deaths
+graph_deaths = (
+    ggplot(data_deaths, aes(x="date", y="newDailyNsoDeathsByDeathDate"))
+    + geom_line()
+    + labs(title=f"England COVID-19 Deaths by Date", x="Date", y="Deaths")
+    + theme_minimal()
+    + theme(axis_text_x=element_text(rotation=45, hjust=1))
+    + scale_x_date(date_breaks = "21 days")
+    + stat_smooth(method='mavg', method_args={'window': 3}, color='cyan', show_legend=True)
+    + stat_smooth(method='mavg', method_args={'window': 7}, color='blue')
+    + theme(axis_text_x=element_text(rotation=45, hjust=1))
+)
 
-if error_count > 1:
-    print("⚠  {} errors were encountered during runtime. Check the logs...".format(error_count))
-else:
-    print("❤  Success. Thank you for your patience.")
+# Save the graph to a file
+graph_deaths.save(filename=('deaths_daily_' + str(date_today)),path=path_2,height=6, width=25, units = 'in', dpi=1000, verbose = False)
