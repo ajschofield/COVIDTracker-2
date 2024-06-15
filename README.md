@@ -1,8 +1,7 @@
-# NOTICE
+This project is now archived. It was a lockdown project.
 
-~~For a while the UK COVID-19 figures have been available primarily via an API that I have neglected for a while. I was going to fix this by using this API instead of the CSV downloads, but quite frankly I can't be bothered. No-one is even aware that this repo exists anyway, and I'm sure there are better projects on here that do just the same (maybe even more) - this was just a lockdown project anyway to kill time.~~
-
-- [x] Fixed
+The API used to fetch the data required is no longer operational and functionality to provide alternative
+local data was never added. Oh well, it was fun making this anyway.
 
 ----------
 
